@@ -38,18 +38,12 @@ const page = context.pages().length
 const notify_games = [];
 let user;
 
-// SELECTORS
-// '.mectrl_truncate' username
-
-// '.gameDivsWrapper' container for free games list
-// 'a' [] - list of games links (grab href)
-
 try {
     await performLogin();
     await getAndSaveUser();
     await redeemFreeGames();
 } catch (error) {
-    console.error(error); // .toString()?
+    console.error(error);
     process.exitCode ||= 1;
     if (error.message && process.exitCode != 130)
         notify(`xbox failed: ${error.message.split("\n")[0]}`);
@@ -63,9 +57,8 @@ try {
 }
 
 async function performLogin() {
-    await page.goto(URL_CLAIM);
+    await page.goto(URL_CLAIM, { waitUntil: "domcontentloaded" }); // default 'load' takes forever
 
-    // CHECK AND LOGIN
     const signInLocator = page
         .getByRole("link", {
             name: "Sign in to your account",
@@ -75,30 +68,63 @@ async function performLogin() {
 
     await Promise.any([signInLocator, usernameLocator]);
 
-    if (await signInLocator.isVisible()) {
+    if (usernameLocator.isVisible()) {
+        return; // logged in using saved cookie
+    } else if (await signInLocator.isVisible()) {
+        console.error("Not signed in anymore.");
         await signInLocator.click();
+        await signInToXbox();
+    } else {
+        // lost! where am i?
+    }
+}
 
-        // TODO email/pass stuff from config + logs
+async function signInToXbox() {
+    page.waitForLoadState("domcontentloaded");
+    if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout); // give user some extra time to log in
+    console.info(`Login timeout is ${cfg.login_timeout / 1000} seconds!`);
 
-        const email =
-            cfg.xbox_email || (await prompt({ message: "Enter email" }));
-        const password =
-            email &&
-            (cfg.xbox_password ||
-                (await prompt({
-                    type: "password",
-                    message: "Enter password",
-                })));
-
-        await page
-            .getByPlaceholder("Email, phone, or Skype")
-            .fill(email);
+    // ### FETCH EMAIL/PASS
+    if (cfg.xbox_email && cfg.xbox_password)
+        console.info("Using email and password from environment.");
+    else
+        console.info(
+            "Press ESC to skip the prompts if you want to login in the browser (not possible in headless mode)."
+        );
+    const email = cfg.xbox_email || (await prompt({ message: "Enter email" }));
+    const password =
+        email &&
+        (cfg.xbox_password ||
+            (await prompt({
+                type: "password",
+                message: "Enter password",
+            })));
+    // TODO implement OTP key
+    // ### FILL IN EMAIL/PASS
+    if (email && password) {
+        await page.getByPlaceholder("Email, phone, or Skype").fill(email);
         await page.getByRole("button", { name: "Next" }).click();
         await page.getByPlaceholder("Password").fill(password);
         await page.getByRole("button", { name: "Sign in" }).click();
         await page.getByLabel("Don't show this again").check();
         await page.getByRole("button", { name: "Yes" }).click();
+    } else {
+        console.log("Waiting for you to login in the browser.");
+        await notify(
+            "xbox: no longer signed in and not enough options set for automatic login."
+        );
+        if (cfg.headless) {
+            console.log(
+                "Run `SHOW=1 node xbox` to login in the opened browser."
+            );
+            await context.close();
+            process.exit(1);
+        }
     }
+
+    // ### VERIFY SIGNED IN
+    await page.waitForSelector("#mectrl_currentAccount_primary");
+    if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 }
 
 async function getAndSaveUser() {
@@ -108,7 +134,6 @@ async function getAndSaveUser() {
 }
 
 async function redeemFreeGames() {
-    // CLAIM FREE GAMES
     const monthlyGamesLocator = await page.locator(".f-size-large").all();
 
     const monthlyGamesPageLinks = await Promise.all(
@@ -121,33 +146,54 @@ async function redeemFreeGames() {
     for (const url of monthlyGamesPageLinks) {
         await page.goto(url);
 
-        // TODO DB stuff for notify
+        const title = await page.locator("h1").first().innerText();
+        const game_id = page.url().split("/").pop();
+        db.data[user][game_id] ||= { title, time: datetime(), url: page.url() }; // this will be set on the initial run only!
+        console.log("Current free game:", title);
+        const notify_game = { title, url, status: "failed" };
+        notify_games.push(notify_game); // status is updated below
 
         // SELECTORS
-        const getBtnLocator = page
-            .locator(".glyph-prepend-xbox-gold-inline")
-            .first();
+        const getBtnLocator = page.getByText("GET", { exact: true }).first();
         const installToLocator = page
-            .locator('div:has-text("INSTALL TO")')
+            .getByText("INSTALL TO", { exact: true })
             .first();
 
-        await Promise.any([getBtnLocator, installToLocator]);
+        await Promise.any([
+            getBtnLocator.waitFor(),
+            installToLocator.waitFor(),
+        ]);
 
-        if (getBtnLocator.isVisible()) {
+        if (await installToLocator.isVisible()) {
+            console.log("  Already in library! Nothing to claim.");
+            notify_game.status = "existed";
+            db.data[user][game_id].status ||= "existed"; // does not overwrite claimed or failed
+        } else if (await getBtnLocator.isVisible()) {
+            console.log("  Not in library yet! Click GET.");
             await getBtnLocator.click();
 
-            // TODO this part not working
-            const popupLocator = page.locator(".buynow");
-            await popupLocator.waitFor(); // wait for popup
+            // wait for popup
+            await page
+                .locator('iframe[name="purchase-sdk-hosted-iframe"]')
+                .waitFor();
+            const popupLocator = page.frameLocator(
+                "[name=purchase-sdk-hosted-iframe]"
+            );
 
             const finalGetBtnLocator = popupLocator.getByText("GET");
             await finalGetBtnLocator.waitFor();
             await finalGetBtnLocator.click();
-        } else if (installToLocator.isVisible()) {
-            // already claimed
+
+            await page.getByText("Thank you for your purchase.").waitFor();
+            notify_game.status = "claimed";
+            db.data[user][game_id].status = "claimed";
+            db.data[user][game_id].time = datetime(); // claimed time overwrites failed/dryrun time
+            console.log("  Claimed successfully!");
         }
+
+        // notify_game.status = db.data[user][game_id].status; // claimed or failed
+
+        // const p = path.resolve(cfg.dir.screenshots, playstation-plus', `${game_id}.png`);
+        // if (!existsSync(p)) await page.screenshot({ path: p, fullPage: false }); // fullPage is quite long...
     }
 }
-
-// ---------------------
-await context.close();

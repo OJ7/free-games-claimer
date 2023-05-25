@@ -44,7 +44,7 @@ export const cfg = {
   // auth xbox
   xbox_email: process.env.XBOX_EMAIL || process.env.EMAIL,
   xbox_password: process.env.XBOX_PASSWORD || process.env.PASSWORD,
-  xbox_otpkey: process.env.PSP_OTPKEY, // TODO unused?
+  xbox_otpkey: process.env.PSP_OTPKEY,
 
   // experimmental - likely to change
   pg_redeem: process.env.PG_REDEEM == '1', // prime-gaming: redeem keys on external stores
