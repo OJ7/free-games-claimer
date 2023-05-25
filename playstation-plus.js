@@ -34,7 +34,6 @@ if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 const page = context.pages().length
     ? context.pages()[0]
     : await context.newPage(); // should always exist
-// console.debug('userAgent:', await page.evaluate(() => navigator.userAgent));
 
 const notify_games = [];
 let user;
@@ -44,7 +43,7 @@ try {
     await getAndSaveUser();
     await redeemFreeGames();
 } catch (error) {
-    console.error(error); // .toString()?
+    console.error(error);
     process.exitCode ||= 1;
     if (error.message && process.exitCode != 130)
         notify(`playstation-plus failed: ${error.message.split("\n")[0]}`);
@@ -56,36 +55,31 @@ try {
             `playstation-plus (${user}):<br>${html_game_list(notify_games)}`
         );
     }
+    await context.close();
 }
-await context.close();
 
 async function performLogin() {
-    // TODO figure out cookies
-    // await context.addCookies([{name: 'CookieConsent', value: '{stamp:%274oR8MJL+bxVlG6g+kl2we5+suMJ+Tv7I4C5d4k+YY4vrnhCD+P23RQ==%27%2Cnecessary:true%2Cpreferences:true%2Cstatistics:true%2Cmarketing:true%2Cmethod:%27explicit%27%2Cver:1%2Cutc:1672331618201%2Cregion:%27de%27}', domain: 'www.gog.com', path: '/'}]); // to not waste screen space when non-headless
-
     await page.goto(URL_CLAIM, { waitUntil: "domcontentloaded" }); // default 'load' takes forever
 
     // SELECTORS
-    const signIn = page.locator('span:has-text("Sign in")').first();
-    const profileIcon = page.locator(".profile-icon").first();
+    const signInLocator = page.locator('span:has-text("Sign in")').first();
+    const profileIconLocator = page.locator(".profile-icon").first();
 
     const mainPageBaseUrl = "https://playstation.com";
     const loginPageBaseUrl = "https://my.account.sony.com";
 
-    // const mainPageUrlCheck = page.waitForURL(`**${mainPageUrlSnippet}**`, { waitUntil: 'domcontentloaded'});
-    // const loginPageUrlCheck = page.waitForURL(`**${loginPageUrlSnippet}**`, { waitUntil: 'domcontentloaded'});
-
     async function isSignedIn() {
-        await Promise.any([signIn.waitFor(), profileIcon.waitFor()]);
-        return !(await signIn.isVisible());
+        await Promise.any([
+            signInLocator.waitFor(),
+            profileIconLocator.waitFor(),
+        ]);
+        return !(await signInLocator.isVisible());
     }
 
     if (!(await isSignedIn())) {
-        await signIn.click();
+        await signInLocator.click();
 
         page.waitForLoadState("domcontentloaded");
-
-        // await Promise.any([mainPageUrlCheck, loginPageUrlCheck]);
 
         if (page.url().indexOf(mainPageBaseUrl) === 0) {
             if (await isSignedIn()) {
@@ -103,7 +97,6 @@ async function performLogin() {
 }
 
 async function signInToPSN() {
-    // it then creates an iframe for the login
     await page.waitForSelector("#kekka-main");
     if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout); // give user some extra time to log in
     console.info(`Login timeout is ${cfg.login_timeout / 1000} seconds!`);
@@ -133,6 +126,7 @@ async function signInToPSN() {
         await page.locator("#signin-password-button").click();
 
         // ### CHECK FOR CAPTCHA
+        // TODO not reliably working
         page.locator("#FunCaptcha")
             .waitFor()
             .then(() => {
@@ -166,7 +160,7 @@ async function signInToPSN() {
                 await page.type('input[title="Enter Code"]', otp.toString());
                 await page
                     .locator(".checkbox-container")
-                    .locator("button")
+                    .locator("button").first()
                     .click(); // Trust this Browser
                 await page.click("button.primary-button");
             })
@@ -186,12 +180,13 @@ async function signInToPSN() {
     }
 
     // ### VERIFY SIGNED IN
+    // TODO buggy
     await page.waitForSelector(".psw-c-secondary");
     if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 }
 
 async function getAndSaveUser() {
-    user = await page.locator(".psw-c-secondary").innerText(); // innerText is uppercase due to styling!
+    user = await page.locator(".psw-c-secondary").innerText();
     console.log(`Signed in as '${user}'`);
     db.data[user] ||= {};
 }
@@ -222,7 +217,7 @@ async function redeemFreeGames() {
         const gameCard = page.locator(".content-grid").first();
         await gameCard.waitFor();
         const title = await gameCard.locator("h1").first().innerText();
-        const game_id = page.url().split("/").pop();
+        const game_id = page.url().split("/").filter(x => !! x).pop();
         db.data[user][game_id] ||= { title, time: datetime(), url: page.url() }; // this will be set on the initial run only!
         console.log("Current free game:", title);
         const notify_game = { title, url, status: "failed" };
@@ -247,12 +242,13 @@ async function redeemFreeGames() {
             await addToLibrary.click();
 
             await inLibrary.waitFor();
+            notify_game.status = "claimed";
             db.data[user][game_id].status = "claimed";
             db.data[user][game_id].time = datetime(); // claimed time overwrites failed/dryrun time
             console.log("  Claimed successfully!");
         }
 
-        notify_game.status = db.data[user][game_id].status; // claimed or failed
+        // notify_game.status = db.data[user][game_id].status; // claimed or failed
 
         // const p = path.resolve(cfg.dir.screenshots, playstation-plus', `${game_id}.png`);
         // if (!existsSync(p)) await page.screenshot({ path: p, fullPage: false }); // fullPage is quite long...
