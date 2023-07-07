@@ -4,8 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - "playstation-plus"
-      - "xbox-gold"
+      - "actions"
     paths-ignore:
       - ".github/**"
       - ".gitignore"
