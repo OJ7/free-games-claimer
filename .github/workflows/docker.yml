@@ -44,5 +44,5 @@ jobs:
           platforms: linux/amd64,linux/arm64 # ,linux/arm/v7
           push: true
           tags: |
-            oj7/free-games-claimer:latest
+            ojdockdock/free-games-claimer:latest
             ghcr.io/oj7/free-games-claimer:latest
