@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - "main"
+      - "playstation-plus"
+      - "xbox-gold"
     paths-ignore:
       - ".github/**"
       - ".gitignore"
@@ -44,5 +45,5 @@ jobs:
           platforms: linux/amd64,linux/arm64 # ,linux/arm/v7
           push: true
           tags: |
-            voglerr/free-games-claimer:latest
-            ghcr.io/vogler/free-games-claimer:latest
+            OJ7/free-games-claimer:latest
+            ghcr.io/OJ7/free-games-claimer:latest
