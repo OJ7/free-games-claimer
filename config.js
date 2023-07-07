@@ -42,6 +42,10 @@ export const cfg = {
   psp_password: process.env.PSP_PASSWORD || process.env.PASSWORD,
   psp_otpkey: process.env.PSP_OTPKEY,
 
+  // auth xbox
+  xbox_email: process.env.XBOX_EMAIL || process.env.EMAIL,
+  xbox_password: process.env.XBOX_PASSWORD || process.env.PASSWORD,
+  xbox_otpkey: process.env.XBOX_OTPKEY,
   // experimmental - likely to change
   pg_redeem: process.env.PG_REDEEM == '1', // prime-gaming: redeem keys on external stores
   pg_claimdlc: process.env.PG_CLAIMDLC == '1', // prime-gaming: claim in-game content
