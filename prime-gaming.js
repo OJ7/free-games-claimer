@@ -97,12 +97,13 @@ try {
   await page.click('button[data-type="Game"]');
   await page.keyboard.press('End'); // scroll to bottom to show all games
   await page.waitForLoadState('networkidle'); // wait for all games to be loaded
+  await page.waitForTimeout(2000); // TODO networkidle wasn't enough to load all already collected games
   const games = page.locator('div[data-a-target="offer-list-FGWP_FULL"]');
   await games.waitFor();
   console.log('Number of already claimed games (total):', await games.locator('p:has-text("Collected")').count());
   // can't use .all() since the list of elements via locator will change after click while we iterate over it
-  const internal = await games.locator('[data-a-target="claim-prime-offer-card"]:has-text("Claim")').elementHandles();
-  const external = games.locator('[data-a-target="learn-more-card"]:has(p:text-is("Claim"))'); // using .elementHandles() here would lead to error due to page navigation: elementHandle.$: Protocol error (Page.adoptNode)
+  const internal = await games.locator('.item-card__action:has([data-a-target="FGWPOffer"])').elementHandles();
+  const external = games.locator('.item-card__action:has([data-a-target="ExternalOfferClaim"])'); // using .elementHandles() here would lead to error due to page navigation: elementHandle.$: Protocol error (Page.adoptNode)
   console.log('Number of free unclaimed games (Prime Gaming):', internal.length);
   // claim games in internal store
   for (const card of internal) {
@@ -249,10 +250,11 @@ try {
             await page2.click('[type="submit"]');
             redeem_action = 'redeemed?';
             console.log('  Redeemed successfully? Please report problems in https://github.com/vogler/free-games-claimer/issues/5');
+            db.data[user][title].status = 'claimed and redeemed';
           } else {
             console.error(`  Redeem on ${store} not yet implemented!`);
           }
-          await page2.pause();
+          if (cfg.debug) await page2.pause();
           await page2.close();
         }
         notify_game.status = `<a href="${redeem[store]}">${redeem_action}</a> ${code} on ${store}`;
